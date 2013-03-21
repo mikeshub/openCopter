@@ -14,10 +14,17 @@ void ProcessChannels(){
       MapVar(&rcCommands.values.rudder,&rateSetPointZ,1000,2000,-300,300);
       flightState = HH_OFF;
     }
+    if (t.v.rollSetPoint < 1 && t.v.rollSetPoint > -1){
+      t.v.rollSetPoint = 0;
+    }
+    if (t.v.pitchSetPoint < 1 && t.v.pitchSetPoint > -1){
+      t.v.pitchSetPoint = 0;
+    }
   }
   if (rcCommands.values.throttle > LIFTOFF){
     integrate = true;
   }
+
 }
 
 
@@ -35,17 +42,22 @@ ISR(PCINT2_vect){
   changeMask = currentPinState ^ lastPinState;
   lastPinState = currentPinState;
   currentTime = micros();
-  for(uint8_t i=0;i<8;i++){
-    if(changeMask & 1<<i){//has there been a change
-      if(!(currentPinState & 1<<i)){//is the pin in question logic low?
-        timeDifference = currentTime - changeTime[i];//if so then calculate the pulse width
+  for(k = 0;k<8;k++){
+    if(changeMask & 1<<k){//has there been a change
+      if(!(currentPinState & 1<<k)){//is the pin in question logic low?
+        timeDifference = currentTime - changeTime[k];//if so then calculate the pulse width
         if (900 < timeDifference && timeDifference < 2200){//check to see if it is a valid length
-          rcCommands.standardRCBuffer[i] = (constrain((timeDifference - offset),1080,1920) - 1080) * 1.19 + 1000;
-          newRC = true;
+          rcCommands.standardRCBuffer[k] = (constrain((timeDifference - offset),1080,1920) - 1080) * 1.19 + 1000;
+          if (k != 6){ //for DSM2 fail safe - in loss of signal all channels stop except for the throttle
+            newRC = true;
+          }
+          if (k == 6 && ((timeDifference ) < 1025)){//fail safe for futaba / DSMx
+            failSafe = true;
+          }
         }
       }
       else{//the pin is logic high implying that this is the start of the pulse
-        changeTime[i] = currentTime;
+        changeTime[k] = currentTime;
       }
     }
   }
@@ -119,6 +131,13 @@ void SBusParser(){
     rcCommands.values.aux2  = (rcCommands.values.aux2  - 352) * 0.7446 + 1000;
     rcCommands.values.aux3  = constrain(((sBusData[10]>>5|sBusData[11]<<3) & 0x07FF),352,1695);
     rcCommands.values.aux3  = (rcCommands.values.aux3  - 352) * 0.7446 + 1000;
+    if (sBusData[23] & (1<<2)) {
+      failSafe = true;
+    }
+    if (sBusData[23] & (1<<3)) {
+      failSafe = true;
+    }
+
   }
 
 }
@@ -170,7 +189,6 @@ void DSMXParser(){
 
 }
 void DSM2Parser(){
-
   if (Serial1.available() > 14){
     while(Serial1.available() > 0){
       inByte = Serial1.read();
@@ -229,7 +247,6 @@ void DSM2Parser(){
     rcCommands.values.aux1  = (constrain(rcCommands.values.aux1,1177,1893)  - 1177) * 1.3908 + 1000;
     rcCommands.values.aux2  = (constrain(rcCommands.values.aux2,1177,1893)  - 1177) * 1.3908 + 1000;
   }
-
 }
 
 void DetectRC(){
@@ -250,7 +267,6 @@ void DetectRC(){
 }
 
 void SBus(){
-
   Serial1.begin(100000);
   timer = millis();
   while (Serial1.available() == 0){
@@ -258,10 +274,8 @@ void SBus(){
       return;
     }
   }
-
   rcType = SBUS;
   detected = true;
-
 }
 
 void Spektrum(){
@@ -308,5 +322,9 @@ void Spektrum(){
 
   }
 }
+
+
+
+
 
 

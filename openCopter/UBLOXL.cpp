@@ -125,7 +125,6 @@ void UBLOX::Monitor(){
 
         break;
       case 6://
-        //Serial.println("STATUS");
         if (lengthIndex < 2 && dataIndex == 0){
           inByte = GPSPort.read();
           lengthIndex++;

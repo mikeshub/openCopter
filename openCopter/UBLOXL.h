@@ -44,7 +44,6 @@ public:
   GPS_Union_t data;
   boolean newData;
 private:
-  //SerialPort<PORTNUMBER,255,255> GPSPort;
   float fastAtan2( float y, float x);
   uint8_t GPSState;
   int i;

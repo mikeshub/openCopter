@@ -94,42 +94,32 @@ short Temperature(unsigned int ut){
 }
 
 void StartUT(void){
-  Wire.beginTransmission(BMP085_ADDRESS);
-  Wire.write(0xF4);
-  Wire.write(0x2E);
-  Wire.endTransmission();
+  /*Wire.beginTransmission(BMP085_ADDRESS);
+   Wire.write(0xF4);
+   Wire.write(0x2E);
+   Wire.endTransmission();*/
+  I2c.write(BMP085_ADDRESS,0xF4,0x2E);
 }
 
 unsigned int ReadUT(void){
 
-  Wire.beginTransmission(BMP085_ADDRESS);
-  Wire.write(0xF6);
-  Wire.endTransmission();
-  Wire.requestFrom(BMP085_ADDRESS, 2);
-
-  msb = Wire.read();
-  lsb = Wire.read();
-
+  I2c.read(BMP085_ADDRESS,0xF6,2);
+  msb = I2c.receive();
+  lsb = I2c.receive();
 
   return ((msb << 8) | lsb);
+
 }
 
 void StartUP(void){
-  Wire.beginTransmission(BMP085_ADDRESS);
-  Wire.write(0xF4);
-  Wire.write((0x34 + (OSS<<6)));
-  Wire.endTransmission();
+  I2c.write(BMP085_ADDRESS,0xF4,(0x34 + (OSS<<6)));
 }
 
 unsigned ReadUP(void){
-
-  Wire.beginTransmission(BMP085_ADDRESS);
-  Wire.write(0xF6);
-  Wire.endTransmission();
-  Wire.requestFrom(BMP085_ADDRESS, 3);  
-  msb = Wire.read();
-  lsb = Wire.read();
-  xlsb = Wire.read();
+  I2c.read(BMP085_ADDRESS,0xF6,3);
+  msb = I2c.receive();
+  lsb = I2c.receive();
+  xlsb = I2c.receive();
 
   return ((((unsigned long) msb << 16) | ((unsigned long) lsb << 8) | (unsigned long) xlsb) >> (8-OSS));
 }
@@ -139,55 +129,49 @@ void BaroInit(void){
   pressureState = 0;
   baroTimer = millis();
   newBaro = false;
-
-  Wire.beginTransmission(BMP085_ADDRESS);
-  Wire.write(0xAA);
-  Wire.endTransmission();
-
-  Wire.requestFrom(BMP085_ADDRESS, 22);  
-
-  msb = Wire.read();
-  lsb = Wire.read();
+  I2c.read(BMP085_ADDRESS,0xAA,22);
+  msb = I2c.receive();
+  lsb = I2c.receive();
   ac1 = (msb << 8) | lsb;
 
-  msb = Wire.read();
-  lsb = Wire.read();
+  msb = I2c.receive();
+  lsb = I2c.receive();
   ac2 = (msb << 8) | lsb;
 
-  msb = Wire.read();
-  lsb = Wire.read();
+  msb = I2c.receive();
+  lsb = I2c.receive();
   ac3 = (msb << 8) | lsb;
 
-  msb = Wire.read();
-  lsb = Wire.read();
+  msb = I2c.receive();
+  lsb = I2c.receive();
   ac4 = (msb << 8) | lsb;
 
-  msb = Wire.read();
-  lsb = Wire.read();
+  msb = I2c.receive();
+  lsb = I2c.receive();
   ac5 = (msb << 8) | lsb;
 
-  msb = Wire.read();
-  lsb = Wire.read();
+  msb = I2c.receive();
+  lsb = I2c.receive();
   ac6 = (msb << 8) | lsb;
 
-  msb = Wire.read();
-  lsb = Wire.read();
+  msb = I2c.receive();
+  lsb = I2c.receive();
   b1 = (msb << 8) | lsb;
 
-  msb = Wire.read();
-  lsb = Wire.read();
+  msb = I2c.receive();
+  lsb = I2c.receive();
   b2 = (msb << 8) | lsb;
 
-  msb = Wire.read();
-  lsb = Wire.read();
+  msb = I2c.receive();
+  lsb = I2c.receive();
   mb = (msb << 8) | lsb;
 
-  msb = Wire.read();
-  lsb = Wire.read();
+  msb = I2c.receive();
+  lsb = I2c.receive();
   mc = (msb << 8) | lsb;
 
-  msb = Wire.read();
-  lsb = Wire.read();
+  msb = I2c.receive();
+  lsb = I2c.receive();
   md = (msb << 8) | lsb;
   while (newBaro == false){
     PollPressure();
@@ -215,20 +199,9 @@ void BaroInit(void){
 
 
 void MagInit(){
-  Wire.beginTransmission(MAG_ADDRESS);
-  Wire.write(LSM303_CRA_REG);
-  Wire.write(0x1C);//220Hz update rate
-  Wire.endTransmission();
-
-  Wire.beginTransmission(MAG_ADDRESS);
-  Wire.write(LSM303_CRB_REG);
-  Wire.write(0x60);//+/- 2.5 gauss
-  Wire.endTransmission();
-
-  Wire.beginTransmission(MAG_ADDRESS);
-  Wire.write(LSM303_MR_REG);
-  Wire.write((uint8_t)0x00);//continuous conversion mode
-  Wire.endTransmission();
+  I2c.write((uint8_t)MAG_ADDRESS,(uint8_t)LSM303_CRA_REG,(uint8_t)0x1C);
+  I2c.write((uint8_t)MAG_ADDRESS,(uint8_t)LSM303_CRB_REG,(uint8_t)0x60);
+  I2c.write((uint8_t)MAG_ADDRESS,(uint8_t)LSM303_MR_REG,(uint8_t)0x00);
 }
 
 void AccInit(){
@@ -300,26 +273,21 @@ void GyroInit(){
   offsetX = gyroSumX / 500.0;
   offsetY = gyroSumY / 500.0;
   offsetZ = gyroSumZ / 500.0;
-  
+
 }
 
 void GetMag(){
-  Wire.beginTransmission(MAG_ADDRESS);
-  Wire.write(LSM303_OUT_X_H);
-  Wire.endTransmission();
-  Wire.requestFrom(MAG_ADDRESS, 6);
-  //the arudino is a little endian system, but the compass is big endian
-  mag.buffer[1] = Wire.read();//X
-  mag.buffer[0] = Wire.read();
-  mag.buffer[5] = Wire.read();//Z
-  mag.buffer[4] = Wire.read();
-  mag.buffer[3] = Wire.read();//Y
-  mag.buffer[2] = Wire.read();
-
+  I2c.read(MAG_ADDRESS,LSM303_OUT_X_H,6);
+  mag.buffer[1] = I2c.receive();//X
+  mag.buffer[0] = I2c.receive();
+  mag.buffer[5] = I2c.receive();//Z
+  mag.buffer[4] = I2c.receive();
+  mag.buffer[3] = I2c.receive();//Y
+  mag.buffer[2] = I2c.receive();
 
   floatMagX = ((float)mag.v.x - compassXMin) * inverseXRange - 1.0;
-  floatMagY = ((float)mag.v.y - compassYMin) * inverseYRange - 1.0;
-  floatMagZ = ((float)mag.v.z - compassZMin) * inverseZRange - 1.0;
+  floatMagY = -1.0 * (((float)mag.v.y - compassYMin) * inverseYRange - 1.0);
+  floatMagZ = -1.0 * (((float)mag.v.z - compassZMin) * inverseZRange - 1.0);
 
 }
 
@@ -334,8 +302,8 @@ void GetGyro(){
   //don't forget to convert to radians per second. This absolutely will not work otherwise
   //check the data sheet for more info on this
   degreeGyroX = (gyro.v.x - offsetX) * 0.07;
-  degreeGyroY = (gyro.v.y - offsetY) * 0.07;
-  degreeGyroZ = (gyro.v.z - offsetZ) * 0.07;
+  degreeGyroY = -1.0 * ((gyro.v.y - offsetY) * 0.07);
+  degreeGyroZ = -1.0 * ((gyro.v.z - offsetZ) * 0.07);
   radianGyroX = ToRad(degreeGyroX);
   radianGyroY = ToRad(degreeGyroY);
   radianGyroZ = ToRad(degreeGyroZ);
@@ -353,13 +321,12 @@ void GetAcc(){
   //the filter expects gravity to be in NED coordinates
   //switching the sign will fix this
   //the raw values are not negated because the accelerometer values are used for the altimeter
-  //the order and signs have been switched due to the accelerometer being mounted off by 90 degrees
   //one must be careful to make sure that all of the sensors are in the North, East, Down convention
-  rawX = acc.v.y;
+  rawX = acc.v.x;
   Smoothing(&rawX,&smoothAccX);//this is a very simple low pass digital filter
-  rawY = acc.v.x * -1;
+  rawY = acc.v.y * -1.0;
   Smoothing(&rawY,&smoothAccY);//it helps significiantlly with vibrations. 
-  rawZ = acc.v.z;
+  rawZ = acc.v.z * -1.0;
   Smoothing(&rawZ,&smoothAccZ);//if the applicaion is not prone to vibrations this can skipped and the raw value simply recast as a float
   accToFilterX = -1.0 * smoothAccX;//if the value from the smoothing filter is sent it will not work when the algorithm normalizes the vector
   accToFilterY = -1.0 * smoothAccY;
@@ -385,6 +352,8 @@ void GetAcc(){
   }  
 
 }
+
+
 
 
 

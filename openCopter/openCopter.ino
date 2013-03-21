@@ -24,11 +24,16 @@
  This example code will only work on the MEGA
  To use on a different arduino change the slave select defines or use digitalWrite 
  */
-#include <Wire.h>
+#include <I2C.h>
 #include <SPI.h>
 #include "openIMUL.h"
 #include "MPIDL.h"//the L is for local incase there is already a library by that name
 #include "UBLOXL.h"
+
+//LED defines
+#define RED 38
+#define YELLOW 40
+#define GREEN 42
 
 //general SPI defines
 #define READ 0x80
@@ -58,12 +63,12 @@
 //that is why datasheets list a range of LSB/g
 //the values from the datasheets can be used but it will hurt the performance of the filter
 //these calibration values will change over time due to factors like tempature
-#define ACC_SC_X_NEG 0.038431372f
-#define ACC_SC_X_POS 0.036029411f
-#define ACC_SC_Y_NEG 0.035897435f
-#define ACC_SC_Y_POS 0.03828125f
-#define ACC_SC_Z_NEG 0.037984496f
-#define ACC_SC_Z_POS 0.039516129f
+#define ACC_SC_X_NEG 0.038735177f
+#define ACC_SC_X_POS 0.036981132f
+#define ACC_SC_Y_NEG 0.037984496f
+#define ACC_SC_Y_POS 0.036981132f
+#define ACC_SC_Z_NEG 0.041525423f
+#define ACC_SC_Z_POS 0.037262357f
 
 //mag defines ST LSM303DLHC - will possibly work with the HMC5883L
 #define MAG_ADDRESS 0x1E
@@ -72,12 +77,12 @@
 #define LSM303_MR_REG 0x02
 #define LSM303_OUT_X_H 0x03
 //use calibrate_mag to find these values
-#define compassXMax 299.0f
-#define compassXMin -326.0f
-#define compassYMax 138.0f
-#define compassYMin -504.0f
-#define compassZMax 393.0f
-#define compassZMin -185.0f
+#define compassXMax 289.0f
+#define compassXMin -368.0f
+#define compassYMax 246.0f
+#define compassYMin -550.0f
+#define compassZMax 642.0f
+#define compassZMin -245.0f
 #define inverseXRange (float)(2.0 / (compassXMax - compassXMin))
 #define inverseYRange (float)(2.0 / (compassYMax - compassYMin))
 #define inverseZRange (float)(2.0 / (compassZMax - compassZMin))
@@ -86,7 +91,7 @@
 //the code for the BMP085 uses the data ready interrupt so the program isn't blocked 
 #define BMP085_ADDRESS 0x77
 #define OSS 0x00
-#define READY_PIN 10
+#define READY_PIN 47
 #define POLL_RATE 0
 
 //RC defines
@@ -103,7 +108,7 @@
 #define HH_ON 1
 #define HH_OFF 2
 #define LAND 3
-#define LIFTOFF 1175
+#define LIFTOFF 1175 //3s
 
 //using these macros in place of digitalWrite is much faster
 //however digitalWrite will work when using SPI 
@@ -359,6 +364,7 @@ float yawInput;
 uint8_t loopCount;
 uint16_t i;//index for buffering in the data
 uint16_t j;
+uint8_t k;//index for RC signals
 uint32_t timer,printTimer;
 //this is how you use the AHRS and Altimeter
 openIMU imu(&radianGyroX,&radianGyroY,&radianGyroZ,&accToFilterX,&accToFilterY,&accToFilterZ,&scaledAccX,&scaledAccY,&scaledAccZ,&floatMagX,&floatMagY,&floatMagZ,&rawAltitude,&dt);
@@ -376,11 +382,20 @@ MPID AltHoldPosition(&altitudeSetPoint,&imu.altitude,&throttleAdjustment,&integr
 MPID LoiterRollPosition(&zero,&t.v.rollError,&t.v.rollSetPoint,&integrate,&g.v.kp_loiter,&g.v.ki_loiter,&g.v.kd_loiter,&g.v.n_loiter,&g_dt,15,20);
 MPID LoiterPitchlPosition(&zero,&t.v.pitchError,&t.v.pitchSetPoint,&integrate,&g.v.kp_loiter,&g.v.ki_loiter,&g.v.kd_loiter,&g.v.n_loiter,&g_dt,15,20);
 
+boolean failSafe = false;
+long failSafeTimer;
+
 UBLOX gps;
 long prevGPSTime;
 
 void setup(){
+  pinMode(RED,OUTPUT);
+  pinMode(YELLOW,OUTPUT);
+  pinMode(GREEN,OUTPUT);
+  digitalWrite(YELLOW,HIGH);
+  digitalWrite(RED,HIGH);
   Serial.begin(115200);
+  Serial.println("start");
   radio.begin(115200);
   MotorInit();
   DetectRC();
@@ -389,28 +404,36 @@ void setup(){
     PORTK |= 0xFF;//turn on pull ups
     PCMSK2 |= 0xFF;//set interrupt mask for all of PORTK
     PCICR = 1<<2;//enable the pin change interrupt for K
+    delay(100);//wait for a few frames to come in if the aileron channel has not been recieved when the Center() function is called the system does not work
     Center();
   }  
   Serial.println("RC done");
-
   //arming procedure - Gear switch has to be toggled to arm
   newRC = false;
   while (newRC == false){
+    if (rcType == RC){
+      delay(100);
+    }
     if (rcType != RC){
       FeedLine();
     }
   }
 
   while (rcCommands.values.gear < 1850){
+    if (rcType == RC){
+      delay(100);
+    }
     if (rcType != RC){
       FeedLine();
     }
   } 
   newRC = false;
-  Serial.println("armed");
 
-  Wire.begin();
-  TWBR = ((F_CPU / 400000) - 16) / 2;//set the I2C speed to 400KHz - why isn't this an option in Wire.h?????
+  Serial.println("armed");
+  digitalWrite(RED,LOW);
+
+  I2c.begin();
+  I2c.setSpeed(1);
   SPI.begin();
   SPI.setBitOrder(MSBFIRST);
   SPI.setClockDivider(SPI_CLOCK_DIV2);  
@@ -453,21 +476,24 @@ void setup(){
 
 
   gps.init();
-  //pulse the motors to indicate that the craft is armed
-  Motor1WriteMicros(1100);//set the output compare value
-  Motor2WriteMicros(1100);
-  Motor3WriteMicros(1100);
-  Motor4WriteMicros(1100);  
-  delay(500);
 
-  Motor1WriteMicros(1000);//set the output compare value
-  Motor2WriteMicros(1000);
-  Motor3WriteMicros(1000);
-  Motor4WriteMicros(1000); 
+  while (rcCommands.values.throttle > 1020){
+    //Serial.println(rcCommands.values.throttle);
+    if (rcType != RC){
+      FeedLine();
+    }
+    digitalWrite(GREEN,HIGH);
+    delay(500);
+    digitalWrite(GREEN,LOW);
+    delay(500);
+  }
+  digitalWrite(YELLOW,LOW);
+  digitalWrite(GREEN,HIGH);
 
   loopCount = 0;
   DebugOutput();
   printTimer = millis();
+  failSafeTimer = millis();
   timer = micros();
 }
 
@@ -503,13 +529,11 @@ void loop(){
 
   }  
   if (micros() - timer >= 5000){//attempt to run at 200 hz  
-    DebugHigh();
+    //DebugHigh();
     dt = ((micros() - timer) / 1000000.0);
     timer = micros();
     GetGyro();
     GetAcc();
-    //GetMag();
-    //imu.AHRSupdate();
     if (loopCount == 6){
       GetMag();
       imu.AHRSupdate();
@@ -537,7 +561,7 @@ void loop(){
       throttleAdjustment = 0;
     }
     MotorHandler();
-    DebugLow();
+    //DebugLow();
   }
 
   if (rcType != RC){
@@ -545,39 +569,58 @@ void loop(){
   }
   if (newRC == true){
     newRC = false;
+    failSafeTimer = millis();
     ProcessChannels();
     //imu.GetEuler();
     //for debugging purposes
-   if (rcCommands.values.gear > 1600){
-      Serial.print(millis());
-      Serial.print(",");
-      Serial.print(imu.pitch);
-      Serial.print(",");
-      Serial.print(imu.roll);
-      Serial.print(",");
-      Serial.print(imu.yaw);
-      Serial.print(",");
-      Serial.println(imu.altitude);
-    }
-    /*Serial.print(","); 
-     Serial.print(rcCommands.values.aileron);
+    /*if (rcCommands.values.gear > 1600){
+     Serial.print(millis());
      Serial.print(",");
-     Serial.print(rcCommands.values.elevator);
+     Serial.print(imu.pitch);
      Serial.print(",");
-     Serial.print(rcCommands.values.throttle);
+     Serial.print(imu.roll);
      Serial.print(",");
-     Serial.print(rcCommands.values.rudder);
+     Serial.print(imu.yaw);
      Serial.print(",");
-     Serial.print(rcCommands.values.gear);
-     Serial.print(",");
-     Serial.print(rcCommands.values.aux1);
-     Serial.print(",");
-     Serial.print(rcCommands.values.aux2);
-     Serial.print(",");
-     Serial.println(rcCommands.values.aux3);*/
+     Serial.println(imu.altitude);
+     }*/
+    /* Serial.print(",");*/
+    /*Serial.print(rcCommands.values.aileron);
+    Serial.print(",");
+    Serial.print(rcCommands.values.elevator);
+    Serial.print(",");
+    Serial.print(rcCommands.values.throttle);
+    Serial.print(",");
+    Serial.print(rcCommands.values.rudder);
+    Serial.print(",");
+    Serial.print(rcCommands.values.gear);
+    Serial.print(",");
+    Serial.print(rcCommands.values.aux1);
+    Serial.print(",");
+    Serial.print(rcCommands.values.aux2);
+    Serial.print(",");
+    Serial.println(rcCommands.values.aux3); */
 
 
   }  
+  if (millis() - failSafeTimer > 1000){
+    failSafe = true;
+  }
+  if (failSafe == true ){
+    Motor1WriteMicros(1000);//set the output compare value
+    Motor2WriteMicros(1000);
+    Motor3WriteMicros(1000);
+    Motor4WriteMicros(1000);
+    digitalWrite(GREEN,LOW);
+    while(1){
+
+      digitalWrite(RED,HIGH);
+      delay(500);
+      digitalWrite(RED,LOW);
+      delay(500);
+    }
+  }
+
   if (rcCommands.values.gear < 1100){
     Gains();
   }
@@ -606,6 +649,11 @@ void MapVar (int16_t *x, float *y, float in_min, float in_max, float out_min, fl
 void MapVar (uint16_t *x, float *y, float in_min, float in_max, float out_min, float out_max){
   *y = (*x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
 }
+
+
+
+
+
 
 
 

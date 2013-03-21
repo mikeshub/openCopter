@@ -83,29 +83,21 @@ void MYAW::calculate(){
   PIDAngle = *actual;
 
   error = *setPoint - PIDAngle;
-
   errorDiff = prevError - error;
 
   if (errorDiff > 180.0){
-    //singularityState = 1;
     PIDAngle = *actual -360;
     error = *setPoint - PIDAngle;
   }
   if (errorDiff < -180.0){
-    //singularityState = 2;
     PIDAngle = *actual  +360;
     error = *setPoint - PIDAngle;
   }
 
-
-
-
-  //dError = (error - prevError) / *dt;
   dError = dErrorPrev - *fc * *dt * dErrorPrev + *kd * *fc * (error - prevError);
   if (*integrate == true){
     iError += *ki * *dt * error;
   }
-
 
   if (iError > integralLimitHigh){
     iError = integralLimitHigh;
@@ -113,9 +105,6 @@ void MYAW::calculate(){
   if (iError < integralLimitLow){
     iError = integralLimitLow;
   }
-
-
-
 
   *adjustment = *kp * error + iError +  dError;
 
